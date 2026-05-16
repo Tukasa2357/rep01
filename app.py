@@ -1,4 +1,5 @@
 import json
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
@@ -7,7 +8,8 @@ from openai import OpenAI
 from pypdf import PdfReader
 
 CONFIG_PATH = Path("settings.json")
-DEFAULT_MODEL = "gpt-4.1-mini"
+MODEL_OPTIONS = ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"]
+DEFAULT_MODEL = MODEL_OPTIONS[0]
 
 
 def load_settings() -> dict:
@@ -28,8 +30,8 @@ def save_settings(api_key: str, model: str, base_url: str) -> None:
     CONFIG_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def extract_text_from_pdf(pdf_path: Path, max_chars: int = 24000) -> str:
-    reader = PdfReader(str(pdf_path))
+def extract_text_from_pdf(pdf_bytes: bytes, max_chars: int = 24000) -> str:
+    reader = PdfReader(BytesIO(pdf_bytes))
     chunks = []
     total = 0
     for page in reader.pages:
@@ -90,32 +92,33 @@ def main() -> None:
     st.title("特許公報PDF 要約ツール")
 
     settings = load_settings()
+    saved_model = settings.get("model", DEFAULT_MODEL)
+    model_index = MODEL_OPTIONS.index(saved_model) if saved_model in MODEL_OPTIONS else 0
 
     with st.sidebar:
         st.header("設定")
         api_key = st.text_input("OpenAI API Key", value=settings.get("api_key", ""), type="password")
-        model = st.text_input("モデル名", value=settings.get("model", DEFAULT_MODEL))
+        model = st.selectbox("モデル名", options=MODEL_OPTIONS, index=model_index)
         base_url = st.text_input("Base URL（任意）", value=settings.get("base_url", ""))
 
         if st.button("設定を保存"):
             save_settings(api_key=api_key, model=model, base_url=base_url)
             st.success("設定を保存しました。")
 
-    st.write("PDFを指定して、特許公報の要約を生成します。")
-    pdf_path_str = st.text_input("PDFファイルパス", value="")
+    st.write("PDFをファイル選択ダイアログから選んで、特許公報の要約を生成します。")
+    uploaded_file = st.file_uploader("PDFファイルを選択", type=["pdf"])
 
     if st.button("要約を作成"):
         if not api_key:
             st.error("API Keyを設定してください。")
             return
 
-        pdf_path = Path(pdf_path_str)
-        if not pdf_path.exists():
-            st.error(f"PDFが見つかりません: {pdf_path}")
+        if uploaded_file is None:
+            st.error("PDFファイルを選択してください。")
             return
 
         with st.spinner("PDF読込中..."):
-            text = extract_text_from_pdf(pdf_path)
+            text = extract_text_from_pdf(uploaded_file.getvalue())
 
         if not text.strip():
             st.error("PDFから本文を抽出できませんでした。")
